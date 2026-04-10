@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
-import { Home, List, PieChart, Plus, ArrowUpCircle, Snowflake, Wallet } from 'lucide-react';
+import { Home, List, PieChart, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, X } from 'lucide-react';
 
 const App = () => {
   const [transactions, setTransactions] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  
+  // Nuevo Estado para el Modal Específico de Depósito
+  const [depositWallet, setDepositWallet] = useState(null);
+  const [depositForm, setDepositForm] = useState({ amount: '', spender: 'Santi', category: 'Freelance' });
+
   const [activeTab, setActiveTab] = useState('home');
   const [historyFilter, setHistoryFilter] = useState('Todos');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
@@ -13,6 +18,13 @@ const App = () => {
   const [formData, setFormData] = useState({ 
     title: '', amount: '', initialPayment: '', category: 'Comida', spender: 'Santi', type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: 'Binance'
   });
+
+  // Tasas de cambio simuladas (Referenciales para el UI)
+  const exchangeRates = {
+    Binance: { rate: 45.50, currency: 'VES', label: 'Tasa P2P (Aprox)' },
+    BDV: { rate: 45.20, currency: 'VES', label: 'Tasa BCV' },
+    BCP: { rate: 3.75, currency: 'PEN', label: 'Tasa Dólar Perú' }
+  };
 
   useEffect(() => {
     const q = query(collection(db, "transactions"), orderBy("date", "desc"));
@@ -42,7 +54,6 @@ const App = () => {
   const totalFixedCosts = transactions.filter(t => t.type === 'Egreso' && t.frequency === 'Fijo').reduce((a,c) => a + Number(c.amount), 0);
   const saldoLibre = capitalEnBanco - dineroCongelado - totalFixedCosts;
 
-  // --- SALDOS POR CUENTA ---
   const getAccountBalance = (accName) => {
     const incomes = transactions.filter(t => t.type === 'Ingreso' && t.account === accName).reduce((a,c) => a + Number(c.amount), 0);
     const expenses = transactions.filter(t => t.type === 'Egreso' && t.account === accName).reduce((a,c) => {
@@ -54,7 +65,6 @@ const App = () => {
 
   const balances = { Binance: getAccountBalance('Binance'), BCP: getAccountBalance('BCP'), BDV: getAccountBalance('BDV') };
 
-  // --- CEREBRO DINÁMICO ---
   const getDynamicMessage = () => {
     if (saldoLibre < 0) return { msg: "⚠️ Alerta Roja: Presupuesto en negativo.", icon: "🆘", style: "text-paty-pink animate-pulse" };
     if (saldoLibre === 0) return { msg: "Al ras. Ni un café más.", icon: "🧊", style: "text-slate-400" };
@@ -65,24 +75,11 @@ const App = () => {
   };
   const aiMessage = getDynamicMessage();
 
-  // --- ACCIÓN DIRECTA DESDE BILLETERA ---
-  const handleWalletClick = (walletName) => {
-    setFormData({
-      ...formData,
-      type: 'Ingreso',
-      category: 'Sueldo', // Por defecto asume que es un ingreso principal
-      account: walletName,
-      title: '',
-      amount: ''
-    });
-    setShowModal(true);
-  };
-
-  const handleSubmit = async (e) => {
+  // --- HANDLERS ---
+  const handleGeneralSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.amount) return;
     
-    // Easter Egg Check
     if (Number(formData.amount) === 3.14 && formData.category === 'Comida') {
         setShowEasterEgg(true);
         setTimeout(() => setShowEasterEgg(false), 4000);
@@ -95,15 +92,33 @@ const App = () => {
       dataToSave.initialPayment = Number(formData.amount);
     }
 
-    // ⚡ INTERFAZ OPTIMISTA: Cerramos la ventana INMEDIATAMENTE
-    setShowModal(false);
-    
-    // Reseteamos el formulario pero mantenemos al último usuario y cuenta por comodidad
+    setShowModal(false); // Cierre Optimista
     const currentSpender = formData.spender;
     const currentAccount = formData.account;
     setFormData({ title: '', amount: '', initialPayment: '', category: 'Comida', spender: currentSpender, type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: currentAccount });
 
-    // Guardado en Firebase en segundo plano
+    await addDoc(collection(db, "transactions"), dataToSave);
+  };
+
+  const handleDepositSubmit = async (e) => {
+    e.preventDefault();
+    if (!depositForm.amount) return;
+
+    const dataToSave = {
+      title: `Ingreso ${depositForm.category}`,
+      amount: Number(depositForm.amount),
+      initialPayment: Number(depositForm.amount),
+      category: depositForm.category,
+      spender: depositForm.spender,
+      type: 'Ingreso',
+      frequency: depositForm.category === 'Fijo' ? 'Fijo' : 'Aleatorio',
+      account: depositWallet,
+      date: Timestamp.now()
+    };
+
+    setDepositWallet(null); // Cierre Optimista del modal de depósito
+    setDepositForm({ amount: '', spender: depositForm.spender, category: depositForm.category });
+
     await addDoc(collection(db, "transactions"), dataToSave);
   };
 
@@ -112,12 +127,11 @@ const App = () => {
     alert("🛠️ Modo Debug Copiado");
   };
 
-  // --- COMPONENTES ---
+  // --- COMPONENTES DE PESTAÑA ---
 
   const HomeTab = () => (
     <div className="animate-in fade-in duration-300">
       
-      {/* Tarjeta de Decisión */}
       <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] shadow-2xl mb-6 relative overflow-hidden border-4 border-slate-800">
           <div className="flex justify-between items-start mb-2 relative z-10">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo Libre Mágico</p>
@@ -133,26 +147,19 @@ const App = () => {
           </div>
       </div>
 
-      {/* Billeteras Interactivas (Botones) */}
-      <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Toca para sumar ingreso</h2>
+      <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Toca para gestionar cuenta</h2>
       <div className="flex gap-3 mb-6 overflow-x-auto pb-2 hide-scrollbar">
-          <button onClick={() => handleWalletClick('Binance')} className="min-w-[130px] bg-[#F3BA2F]/10 border border-[#F3BA2F]/30 p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left">
-             <p className="text-[10px] font-black text-[#F3BA2F] uppercase mb-1 flex items-center gap-1"><Wallet size={12}/> Binance</p>
-             <p className="font-black text-lg text-slate-800">\$${balances.Binance.toLocaleString()}</p>
-             <div className="mt-2 text-[8px] font-bold text-[#F3BA2F] bg-[#F3BA2F]/20 px-2 py-1 rounded-full inline-block">+ Ingreso Rápido</div>
-          </button>
-          
-          <button onClick={() => handleWalletClick('BCP')} className="min-w-[130px] bg-[#FF7A00]/10 border border-[#FF7A00]/30 p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left">
-             <p className="text-[10px] font-black text-[#FF7A00] uppercase mb-1 flex items-center gap-1"><Wallet size={12}/> BCP</p>
-             <p className="font-black text-lg text-slate-800">\$${balances.BCP.toLocaleString()}</p>
-             <div className="mt-2 text-[8px] font-bold text-[#FF7A00] bg-[#FF7A00]/20 px-2 py-1 rounded-full inline-block">+ Ingreso Rápido</div>
-          </button>
-
-          <button onClick={() => handleWalletClick('BDV')} className="min-w-[130px] bg-paty-pink/10 border border-paty-pink/30 p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left">
-             <p className="text-[10px] font-black text-paty-pink uppercase mb-1 flex items-center gap-1"><Wallet size={12}/> BDV</p>
-             <p className="font-black text-lg text-slate-800">\$${balances.BDV.toLocaleString()}</p>
-             <div className="mt-2 text-[8px] font-bold text-paty-pink bg-paty-pink/20 px-2 py-1 rounded-full inline-block">+ Ingreso Rápido</div>
-          </button>
+          {['Binance', 'BCP', 'BDV'].map(acc => {
+            const colors = { Binance: 'text-[#F3BA2F] bg-[#F3BA2F]/10 border-[#F3BA2F]/30', BCP: 'text-[#FF7A00] bg-[#FF7A00]/10 border-[#FF7A00]/30', BDV: 'text-paty-pink bg-paty-pink/10 border-paty-pink/30' };
+            const textColor = { Binance: 'text-[#F3BA2F]', BCP: 'text-[#FF7A00]', BDV: 'text-paty-pink' };
+            return (
+              <button key={acc} onClick={() => setDepositWallet(acc)} className={`min-w-[130px] ${colors[acc]} border p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left relative overflow-hidden`}>
+                <p className={`text-[10px] font-black ${textColor[acc]} uppercase mb-1 flex items-center gap-1`}><Wallet size={12}/> {acc}</p>
+                <p className="font-black text-lg text-slate-800">\$${balances[acc].toLocaleString()}</p>
+                <div className={`mt-2 text-[8px] font-bold ${textColor[acc]} bg-white/50 px-2 py-1 rounded-full inline-block backdrop-blur-sm`}>Ver Detalle ➔</div>
+              </button>
+            )
+          })}
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-8 text-center font-bold">
@@ -208,7 +215,7 @@ const App = () => {
   const AnalyticsTab = () => (
      <div className="animate-in fade-in duration-300">
         <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 px-1">En construcción 🚧</h2>
-        <p className="text-sm text-slate-500 px-2">Aquí vendrán gráficos avanzados próximamente.</p>
+        <p className="text-sm text-slate-500 px-2">Gráficos avanzados próximamente.</p>
      </div>
   );
 
@@ -225,6 +232,63 @@ const App = () => {
         </div>
       )}
 
+      {/* --- MODAL ESPECÍFICO DE DEPÓSITO Y BILLETERA --- */}
+      {depositWallet && (
+        <div className="fixed inset-0 z-[100] flex items-end">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-in fade-in" onClick={() => setDepositWallet(null)} />
+          <div className="relative w-full bg-white rounded-t-[3rem] p-8 max-w-md mx-auto shadow-2xl animate-in slide-in-from-bottom-10">
+            
+            <button onClick={() => setDepositWallet(null)} className="absolute top-6 right-6 bg-[#F2F2F7] p-2 rounded-full text-slate-400 active:scale-90"><X size={20}/></button>
+
+            <div className="flex items-center gap-3 mb-6">
+               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${depositWallet === 'Binance' ? 'bg-[#F3BA2F]/10 text-[#F3BA2F]' : depositWallet === 'BCP' ? 'bg-[#FF7A00]/10 text-[#FF7A00]' : 'bg-paty-pink/10 text-paty-pink'}`}>
+                  <Wallet size={24} />
+               </div>
+               <div>
+                 <h2 className="text-2xl font-black">Cuenta {depositWallet}</h2>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ingreso Directo</p>
+               </div>
+            </div>
+
+            {/* Dashboard Interno de la Cuenta con Tasa P2P */}
+            <div className="bg-[#F2F2F7] p-5 rounded-3xl mb-6">
+                <div className="flex justify-between items-center mb-2">
+                   <p className="text-xs font-bold text-slate-500">Saldo Actual en USD</p>
+                   <p className="text-[10px] font-black text-success-green flex items-center gap-1"><TrendingUp size={12}/> {exchangeRates[depositWallet].label}</p>
+                </div>
+                <div className="flex justify-between items-end">
+                   <p className="text-4xl font-black tracking-tighter">\$${balances[depositWallet].toLocaleString()}</p>
+                   <div className="text-right">
+                      <p className="text-sm font-black text-slate-700">{(balances[depositWallet] * exchangeRates[depositWallet].rate).toLocaleString()} {exchangeRates[depositWallet].currency}</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase">Aprox. a Tasa {exchangeRates[depositWallet].rate}</p>
+                   </div>
+                </div>
+            </div>
+
+            <form onSubmit={handleDepositSubmit} className="space-y-5">
+              <div className="flex bg-[#F2F2F7] p-1.5 rounded-2xl">
+                <button type="button" onClick={() => setDepositForm({...depositForm, spender: 'Santi'})} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${depositForm.spender === 'Santi' ? 'bg-santi-blue text-white shadow-md' : 'text-slate-400'}`}>SANTI</button>
+                <button type="button" onClick={() => setDepositForm({...depositForm, spender: 'Paty'})} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${depositForm.spender === 'Paty' ? 'bg-paty-pink text-white shadow-md' : 'text-slate-400'}`}>PATY</button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-[10px] font-bold">
+                {['Fijo', 'Freelance', 'Extra'].map(cat => (
+                  <button key={cat} type="button" onClick={() => setDepositForm({...depositForm, category: cat})} className={`p-3 rounded-xl border-2 transition-all ${depositForm.category === cat ? 'border-success-green bg-success-green text-white' : 'border-slate-100 bg-white'}`}>{cat}</button>
+                ))}
+              </div>
+
+              <div className="relative">
+                 <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-300">\$</span>
+                 <input type="number" step="0.01" placeholder="Monto a ingresar" className="w-full bg-[#F2F2F7] p-5 pl-14 rounded-3xl outline-none font-black text-3xl text-success-green placeholder:text-success-green/30" value={depositForm.amount} onChange={e => setDepositForm({...depositForm, amount: e.target.value})} autoFocus />
+              </div>
+
+              <button type="submit" className="w-full bg-success-green text-white p-6 rounded-[2.5rem] font-black text-xl active:scale-95 transition-all shadow-xl shadow-success-green/20">Depositar Fondos</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER PRINCIPAL */}
       <div className="max-w-md mx-auto sticky top-0 z-30 px-6 pt-12 pb-4 backdrop-blur-xl bg-[#F2F2F7]/90">
         <div className="flex justify-between items-center">
           <div>
@@ -254,20 +318,17 @@ const App = () => {
         <Plus size={28} strokeWidth={3} />
       </button>
 
+      {/* MODAL GENERAL DE GASTOS */}
       {showModal && (
         <div className="fixed inset-0 z-[60] flex items-end">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
           <div className="relative w-full bg-white rounded-t-[3rem] p-8 max-w-md mx-auto shadow-2xl overflow-y-auto max-h-[92vh]">
             <div className="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-6" />
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <h2 className="text-xl font-black mb-4 text-center">Registrar Salida</h2>
+            <form onSubmit={handleGeneralSubmit} className="space-y-4">
               
-              <div className="flex bg-[#F2F2F7] p-1.5 rounded-2xl text-xs mb-2">
-                <button type="button" onClick={() => setFormData({...formData, type: 'Egreso', category: 'Comida'})} className={`flex-1 py-3 rounded-xl font-black transition-all ${formData.type === 'Egreso' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-400'}`}>GASTO</button>
-                <button type="button" onClick={() => setFormData({...formData, type: 'Ingreso', category: 'Sueldo'})} className={`flex-1 py-3 rounded-xl font-black transition-all ${formData.type === 'Ingreso' ? 'bg-success-green text-white shadow-md' : 'text-slate-400'}`}>INGRESO</button>
-              </div>
-
               <div>
-                 <p className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2">Billetera / Cuenta</p>
+                 <p className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2">¿De qué cuenta salió?</p>
                  <div className="flex gap-2">
                     {['Binance', 'BCP', 'BDV'].map(acc => (
                         <button key={acc} type="button" onClick={() => setFormData({...formData, account: acc})} className={`flex-1 py-3 rounded-2xl font-black text-xs border-2 transition-all ${formData.account === acc ? (acc === 'Binance' ? 'border-[#F3BA2F] text-[#F3BA2F] bg-[#F3BA2F]/10' : acc === 'BCP' ? 'border-[#FF7A00] text-[#FF7A00] bg-[#FF7A00]/10' : 'border-paty-pink text-paty-pink bg-paty-pink/10') : 'border-transparent bg-[#F2F2F7] text-slate-400'}`}>
@@ -277,18 +338,13 @@ const App = () => {
                  </div>
               </div>
 
-              <input type="text" placeholder="¿Concepto?" className="w-full bg-[#F2F2F7] p-4 rounded-2xl outline-none font-bold" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
+              <input type="text" placeholder="¿En qué gastaste?" className="w-full bg-[#F2F2F7] p-4 rounded-2xl outline-none font-bold" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
               <input type="number" step="0.01" placeholder="Monto Total $" className="w-full bg-[#F2F2F7] p-4 rounded-2xl outline-none font-black text-4xl text-center" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} />
 
               <div className="grid grid-cols-3 gap-2 text-[10px] font-bold">
-                {formData.type === 'Egreso' 
-                  ? ['Comida', 'Cashea', 'Auto', 'Gym', 'Alquiler', 'Torta'].map(cat => (
-                      <button key={cat} type="button" onClick={() => setFormData({...formData, category: cat, frequency: cat === 'Alquiler' ? 'Fijo' : 'Aleatorio'})} className={`p-3 rounded-xl border-2 transition-all ${formData.category === cat ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white'}`}>{cat}</button>
-                    ))
-                  : ['Sueldo', 'Proyecto', 'Extra'].map(cat => (
-                      <button key={cat} type="button" onClick={() => setFormData({...formData, category: cat})} className={`p-3 rounded-xl border-2 transition-all ${formData.category === cat ? 'border-success-green bg-success-green text-white' : 'border-slate-100 bg-white'}`}>{cat}</button>
-                    ))
-                }
+                {['Comida', 'Cashea', 'Auto', 'Gym', 'Alquiler', 'Torta'].map(cat => (
+                   <button key={cat} type="button" onClick={() => setFormData({...formData, category: cat, frequency: cat === 'Alquiler' ? 'Fijo' : 'Aleatorio'})} className={`p-3 rounded-xl border-2 transition-all ${formData.category === cat ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white'}`}>{cat}</button>
+                ))}
               </div>
 
               <div className="flex bg-[#F2F2F7] p-1.5 rounded-2xl mt-4">
@@ -296,13 +352,13 @@ const App = () => {
                 <button type="button" onClick={() => setFormData({...formData, spender: 'Paty'})} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${formData.spender === 'Paty' ? 'bg-paty-pink text-white shadow-md' : 'text-slate-400'}`}>PATY</button>
               </div>
 
-              {formData.category === 'Cashea' && formData.type === 'Egreso' && (
+              {formData.category === 'Cashea' && (
                 <div className="p-4 bg-santi-blue/5 rounded-2xl border border-santi-blue/20 mt-4">
                   <input type="number" step="0.01" placeholder="¿Cuánto pagaste de inicial? $" className="w-full bg-white p-3 rounded-xl outline-none font-bold text-santi-blue text-sm border border-slate-100" value={formData.initialPayment} onChange={e => setFormData({...formData, initialPayment: e.target.value})} />
                 </div>
               )}
 
-              <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-[2rem] font-black text-lg active:scale-95 transition-all shadow-xl mt-4">Registrar Movimiento</button>
+              <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-[2rem] font-black text-lg active:scale-95 transition-all shadow-xl mt-4">Registrar Gasto</button>
             </form>
           </div>
         </div>
