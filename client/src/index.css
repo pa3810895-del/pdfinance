@@ -2,10 +2,9 @@
 
 @theme {
   --color-ios-bg: #F2F2F7;
-  --color-ios-card: #FFFFFF;
-  --color-ios-blue: #007AFF;
-  --color-ios-pink: #FF2D55;
-  --color-ios-green: #34C759;
+  --color-santi-blue: #007AFF;
+  --color-paty-pink: #FF2D55;
+  --color-success-green: #34C759;
 }
 
 body {
