@@ -66,7 +66,7 @@ const App = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = [];
       snapshot.forEach((doc) => docs.push({ id: doc.id, ...doc.data() }));
-      setTransactions(docs);
+      setTransactions(docs); console.log("🔥 DATOS CRUDOS DE FIREBASE (Total: " + docs.length + "):", docs);
     });
     return () => unsubscribe();
   }, []);
