@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
-import { Home, List, BarChart3, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, X, Activity, Calendar } from 'lucide-react';
+import { Home, List, BarChart3, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, Activity, X, Calendar } from 'lucide-react';
 
 const App = () => {
   const [transactions, setTransactions] = useState([]);
@@ -10,7 +10,9 @@ const App = () => {
   const [depositForm, setDepositForm] = useState({ amount: '', spender: 'Santi', category: 'Freelance' });
   const [activeTab, setActiveTab] = useState('home');
   const [historyFilter, setHistoryFilter] = useState('Todos');
-  const [rates, setRates] = useState({ bcv: 36.50, paralelo: 39.10, pen: 3.75 });
+
+  // FIX QA: Valores de respaldo ajustados a la realidad económica actual
+  const [rates, setRates] = useState({ bcv: 475.20, paralelo: 633.50, pen: 3.75 });
 
   const [formData, setFormData] = useState({ 
     title: '', amount: '', initialPayment: '', category: 'Comida', spender: 'Santi', type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: 'Binance'
@@ -24,11 +26,11 @@ const App = () => {
         const veRes = await fetch('https://pydolarvenezuela-api.vercel.app/api/v1/dollar');
         const veData = await veRes.json();
         setRates({
-          bcv: veData.monitors.bcv.price || 36.50,
-          paralelo: veData.monitors.enparalelovzla.price || 39.10,
-          pen: peData.rates.PEN || 3.75
+          bcv: veData?.monitors?.bcv?.price || 475.20,
+          paralelo: veData?.monitors?.enparalelovzla?.price || 633.50,
+          pen: peData?.rates?.PEN || 3.75
         });
-      } catch (e) { console.warn("Modo offline"); }
+      } catch (e) { console.warn("Modo offline: Usando tasas predeterminadas del QA."); }
     };
     fetchRates();
     const q = query(collection(db, "transactions"), orderBy("date", "desc"));
@@ -53,6 +55,7 @@ const App = () => {
     acc[curr.category] = (acc[curr.category] || 0) + Number(curr.amount);
     return acc;
   }, {});
+  const totalExpenses = transactions.filter(t => t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0);
 
   const santiPagos = transactions.filter(t => t.spender === 'Santi' && t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0);
   const patyPagos = transactions.filter(t => t.spender === 'Paty' && t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0);
@@ -61,6 +64,7 @@ const App = () => {
   // --- HANDLERS ---
   const handleGeneralSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.title || !formData.amount) return;
     const data = { ...formData, amount: Number(formData.amount), date: Timestamp.now() };
     if (formData.category === 'Cashea') data.initialPayment = Number(formData.initialPayment || formData.amount);
     setShowModal(false);
@@ -70,6 +74,7 @@ const App = () => {
 
   const handleDepositSubmit = async (e) => {
     e.preventDefault();
+    if (!depositForm.amount) return;
     const data = { title: `Ingreso ${depositForm.category}`, amount: Number(depositForm.amount), spender: depositForm.spender, category: depositForm.category, type: 'Ingreso', account: depositWallet, date: Timestamp.now() };
     setDepositWallet(null);
     await addDoc(collection(db, "transactions"), data);
@@ -138,17 +143,14 @@ const App = () => {
 
   const AnalyticsTab = () => (
     <div className="animate-in fade-in duration-500 pb-10">
-      {/* Resumen Cuentas Claras */}
       <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] mb-6 shadow-xl relative overflow-hidden">
          <h2 className="text-[10px] font-black text-slate-400 uppercase mb-2">Cuentas Claras (50/50)</h2>
          {diff !== 0 ? (
            <p className="text-xl font-bold">
-             {diff > 0 ? <span className="text-paty-pink">Paty</span> : <span className="text-santi-blue">Santi</span>} debe aportar <span className="text-success-green">\$${Math.abs(diff).toFixed(2)}</span> para igualar la bolsa.
+             {diff > 0 ? <span className="text-paty-pink">Paty</span> : <span className="text-santi-blue">Santi</span>} debe aportar <span className="text-success-green">\$${Math.abs(diff).toFixed(2)}</span> a la bolsa.
            </p>
          ) : <p className="text-xl font-bold text-success-green">¡Están a mano! 🤝</p>}
       </div>
-
-      {/* Gastos por Categoría */}
       <h2 className="text-xs font-black text-slate-400 uppercase mb-4 px-1">Distribución de Gastos</h2>
       <div className="space-y-2 mb-8">
          {Object.entries(categoryTotals).map(([cat, val]) => (
@@ -156,18 +158,12 @@ const App = () => {
               <span className="text-xs font-bold text-slate-600 uppercase">{cat}</span>
               <div className="flex items-center gap-3">
                  <div className="h-2 w-24 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-slate-900" style={{width: `${(val / totalExpenses) * 100}%`}}></div>
+                    <div className="h-full bg-slate-900" style={{width: `${(val / (totalExpenses || 1)) * 100}%`}}></div>
                  </div>
                  <span className="text-sm font-black">\$${val.toFixed(0)}</span>
               </div>
            </div>
          ))}
-      </div>
-
-      {/* Timeline de Pagos */}
-      <h2 className="text-xs font-black text-slate-400 uppercase mb-4 px-1 flex items-center gap-2"><Calendar size={14}/> Próximos Compromisos</h2>
-      <div className="bg-white p-5 rounded-[2.5rem] border border-slate-100 italic text-slate-400 text-xs text-center">
-         Próximamente: Calendario automático de cuotas quincenales.
       </div>
     </div>
   );
@@ -175,14 +171,14 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[#F2F2F7] font-sans pb-32 text-slate-900 relative">
       
-      {/* TICKER WALL STREET */}
-      <div className="bg-slate-900 text-success-green font-mono text-[10px] font-bold py-2 overflow-hidden sticky top-0 z-50 shadow-md">
-         <div className="animate-ticker flex">
-            <span className="mx-6 flex items-center gap-1"><Activity size={10}/> 🇻🇪 BCV: Bs. {rates.bcv.toFixed(2)}</span>
-            <span className="mx-6 flex items-center gap-1"><TrendingUp size={10}/> 🚀 Paralelo: Bs. {rates.paralelo.toFixed(2)}</span>
-            <span className="mx-6 flex items-center gap-1"><Activity size={10}/> 🇵🇪 Soles: S/ {rates.pen.toFixed(2)}</span>
-            <span className="mx-6 flex items-center gap-1"><Activity size={10}/> 🇻🇪 BCV: Bs. {rates.bcv.toFixed(2)}</span>
-            <span className="mx-6 flex items-center gap-1"><TrendingUp size={10}/> 🚀 Paralelo: Bs. {rates.paralelo.toFixed(2)}</span>
+      {/* FIX QA: TICKER WALL STREET FORZADO HORIZONTAL */}
+      <div className="bg-slate-900 text-success-green font-mono text-[10px] font-bold py-2 overflow-hidden sticky top-0 z-50 shadow-md w-full whitespace-nowrap">
+         <div className="animate-ticker items-center">
+            <span className="mx-6 inline-flex items-center gap-1"><Activity size={10}/> 🇻🇪 BCV: Bs. {rates.bcv.toFixed(2)}</span>
+            <span className="mx-6 inline-flex items-center gap-1"><TrendingUp size={10}/> 🚀 Paralelo: Bs. {rates.paralelo.toFixed(2)}</span>
+            <span className="mx-6 inline-flex items-center gap-1"><Activity size={10}/> 🇵🇪 Soles: S/ {rates.pen.toFixed(2)}</span>
+            <span className="mx-6 inline-flex items-center gap-1"><Activity size={10}/> 🇻🇪 BCV: Bs. {rates.bcv.toFixed(2)}</span>
+            <span className="mx-6 inline-flex items-center gap-1"><TrendingUp size={10}/> 🚀 Paralelo: Bs. {rates.paralelo.toFixed(2)}</span>
          </div>
       </div>
 
