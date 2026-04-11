@@ -7,13 +7,15 @@
   --color-success-green: #34C759;
 }
 
-@keyframes ticker {
-  0% { transform: translateX(100vw); }
-  100% { transform: translateX(-100%); }
+@keyframes scroll-left {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-150%); }
 }
 
 .animate-ticker {
-  animation: ticker 15s linear infinite;
+  display: inline-block;
+  white-space: nowrap;
+  animation: scroll-left 20s linear infinite;
 }
 
 body {
