@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
-import { Home, List, BarChart3, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, Activity, X, Calendar } from 'lucide-react';
+import { Home, List, BarChart3, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, Activity, X, Calendar, RefreshCw } from 'lucide-react';
 
 const App = () => {
   const [transactions, setTransactions] = useState([]);
@@ -11,27 +11,77 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [historyFilter, setHistoryFilter] = useState('Todos');
 
+  // Valores de respaldo actualizados a la economía real
   const [rates, setRates] = useState({ bcv: 475.20, paralelo: 633.50, pen: 3.75 });
+  const [syncStatus, setSyncStatus] = useState('Conectando...');
 
   const [formData, setFormData] = useState({ 
     title: '', amount: '', initialPayment: '', category: 'Comida', spender: 'Santi', type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: 'Binance'
   });
 
-  useEffect(() => {
-    const fetchRates = async () => {
+  // --- MOTOR DE DOBLE CONFIRMACIÓN ---
+  const fetchRates = async () => {
+    setSyncStatus('Sincronizando servidores...');
+    let bcvVal = 475.20;
+    let parVal = 633.50;
+    let penVal = 3.75;
+    let confirmed = false;
+
+    // Intento 1: API Primaria (DolarApi)
+    try {
+      const res1 = await fetch('https://ve.dolarapi.com/v1/dolares');
+      if(res1.ok) {
+        const data1 = await res1.json();
+        const oficial = data1.find(d => d.casa === 'oficial' || d.casa === 'bcv');
+        const paralelo = data1.find(d => d.casa === 'paralelo' || d.casa === 'enparalelovzla');
+        if(oficial) bcvVal = oficial.precio;
+        if(paralelo) parVal = paralelo.precio;
+        confirmed = true;
+      }
+    } catch (e) { console.warn("Fallo Servidor 1"); }
+
+    // Intento 2: API Secundaria (Redundancia PyDolar)
+    if (!confirmed) {
       try {
-        const peRes = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        setSyncStatus('Reintentando (Servidor 2)...');
+        const res2 = await fetch('https://pydolarvenezuela-api.vercel.app/api/v1/dollar');
+        if(res2.ok) {
+          const data2 = await res2.json();
+          bcvVal = data2.monitors.bcv.price;
+          parVal = data2.monitors.enparalelovzla.price;
+          confirmed = true;
+        }
+      } catch (e) { console.warn("Fallo Servidor 2"); }
+    }
+
+    // API Soles
+    try {
+      const peRes = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+      if(peRes.ok) {
         const peData = await peRes.json();
-        const veRes = await fetch('https://pydolarvenezuela-api.vercel.app/api/v1/dollar');
-        const veData = await veRes.json();
-        setRates({
-          bcv: veData?.monitors?.bcv?.price || 475.20,
-          paralelo: veData?.monitors?.enparalelovzla?.price || 633.50,
-          pen: peData?.rates?.PEN || 3.75
-        });
-      } catch (e) { console.warn("Modo offline."); }
-    };
+        penVal = peData.rates.PEN;
+      }
+    } catch(e) {}
+
+    setRates({ bcv: bcvVal || 475.20, paralelo: parVal || 633.50, pen: penVal || 3.75 });
+    
+    if(confirmed) {
+       setSyncStatus('🟢 Tasas al día (Verificadas)');
+       setTimeout(() => setSyncStatus(''), 4000); // Ocultar mensaje limpio después de 4s
+    } else {
+       setSyncStatus('🟠 Usando tasas offline seguras');
+    }
+  };
+
+  useEffect(() => {
     fetchRates();
+    // Actualizar cada vez que la app vuelve a la pantalla
+    window.addEventListener('focus', fetchRates);
+    return () => window.removeEventListener('focus', fetchRates);
+  }, []);
+
+  // --- BASE DE DATOS ---
+  useEffect(() => {
     const q = query(collection(db, "transactions"), orderBy("date", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = [];
@@ -49,7 +99,6 @@ const App = () => {
   const totalFixedCosts = transactions.filter(t => t.type === 'Egreso' && t.frequency === 'Fijo').reduce((a,c) => a + Number(c.amount), 0);
   const saldoLibre = capitalEnBanco - dineroCongelado - totalFixedCosts;
 
-  // FIX QA: Cálculo correcto de saldos individuales
   const getAccountBalance = (accName) => {
     const incomes = transactions.filter(t => t.type === 'Ingreso' && t.account === accName).reduce((a,c) => a + Number(c.amount), 0);
     const expenses = transactions.filter(t => t.type === 'Egreso' && t.account === accName).reduce((a,c) => {
@@ -60,7 +109,7 @@ const App = () => {
   };
 
   const balances = { Binance: getAccountBalance('Binance'), BCP: getAccountBalance('BCP'), BDV: getAccountBalance('BDV') };
-
+  
   const categoryTotals = transactions.filter(t => t.type === 'Egreso').reduce((acc, curr) => {
     acc[curr.category] = (acc[curr.category] || 0) + Number(curr.amount);
     return acc;
@@ -103,9 +152,8 @@ const App = () => {
 
       <div className="flex gap-3 mb-6 overflow-x-auto pb-2 hide-scrollbar">
           {['Binance', 'BCP', 'BDV'].map(acc => (
-            <button key={acc} onClick={() => setDepositWallet(acc)} className="min-w-[140px] bg-white border border-slate-100 p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left">
+            <button key={acc} onClick={() => setDepositWallet(acc)} className="min-w-[140px] bg-white border border-slate-100 p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left relative">
               <p className="text-[10px] font-black text-slate-400 uppercase mb-1 flex items-center gap-1"><Wallet size={12}/> {acc}</p>
-              {/* FIX QA: Aquí usamos balances[acc] en lugar del total global */}
               <p className="font-black text-xl text-slate-800">\$${balances[acc].toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
               <div className="mt-2 text-[8px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full inline-block">Ver o Depositar</div>
             </button>
@@ -158,7 +206,7 @@ const App = () => {
          <h2 className="text-[10px] font-black text-slate-400 uppercase mb-2">Cuentas Claras (50/50)</h2>
          {diff !== 0 ? (
            <p className="text-xl font-bold">
-             {diff > 0 ? <span className="text-paty-pink">Paty</span> : <span className="text-santi-blue">Santi</span>} debe aportar <span className="text-success-green">\$${Math.abs(diff).toFixed(2)}</span> a la bolsa.
+             {diff > 0 ? <span className="text-paty-pink">Paty</span> : <span className="text-santi-blue">Santi</span>} compensa con <span className="text-success-green">\$${Math.abs(diff).toFixed(2)}</span>
            </p>
          ) : <p className="text-xl font-bold text-success-green">¡Están a mano! 🤝</p>}
       </div>
@@ -182,7 +230,6 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[#F2F2F7] font-sans pb-32 text-slate-900 relative">
       
-      {/* TICKER WALL STREET */}
       <div className="bg-slate-900 text-success-green font-mono text-[10px] font-bold py-2 overflow-hidden sticky top-0 z-50 shadow-md w-full whitespace-nowrap">
          <div className="animate-ticker items-center">
             <span className="mx-6 inline-flex items-center gap-1"><Activity size={10}/> 🇻🇪 BCV: Bs. {rates.bcv.toFixed(2)}</span>
@@ -193,19 +240,26 @@ const App = () => {
          </div>
       </div>
 
-      {/* FIX QA: HEADER DE CAPITAL GLOBAL REFINADO (SIN SOLES) */}
       <header className="max-w-md mx-auto px-6 pt-6 pb-2">
-         <h1 className="text-4xl font-black tracking-tighter">\$${capitalEnBanco.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h1>
-         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1 mb-4">Capital Total en Billeteras</p>
+         <div className="flex justify-between items-start">
+            <h1 className="text-4xl font-black tracking-tighter">\$${capitalEnBanco.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h1>
+            <button onClick={fetchRates} className="bg-slate-200 p-2 rounded-full active:rotate-180 transition-transform"><RefreshCw size={14} className="text-slate-600"/></button>
+         </div>
+         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1 mb-2">Capital Total en Billeteras</p>
          
-         <div className="flex gap-4 bg-white p-3 rounded-[1.5rem] border border-slate-100 shadow-sm">
+         {/* INDICADOR DE CARIÑO (Sincronización) */}
+         {syncStatus && (
+            <p className="text-[9px] font-bold text-slate-500 animate-pulse mb-3">{syncStatus}</p>
+         )}
+         
+         <div className="flex gap-4 bg-white p-3 rounded-[1.5rem] border border-slate-100 shadow-sm mt-2">
             <div className="flex-1">
                <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5">🇻🇪 Oficial (BCV)</p>
                <p className="text-sm font-bold text-slate-700">Bs. {(capitalEnBanco * rates.bcv).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
             </div>
             <div className="w-px bg-slate-100"></div>
             <div className="flex-1">
-               <p className="text-[9px] font-black text-success-green uppercase mb-0.5">🚀 Paralelo (P2P)</p>
+               <p className="text-[9px] font-black text-success-green uppercase mb-0.5">🚀 Paralelo</p>
                <p className="text-sm font-bold text-slate-900">Bs. {(capitalEnBanco * rates.paralelo).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
             </div>
          </div>
@@ -217,7 +271,6 @@ const App = () => {
         {activeTab === 'analytics' && <AnalyticsTab />}
       </main>
 
-      {/* FOOTER NAV */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-xl border-t border-slate-100 pb-safe">
         <div className="max-w-md mx-auto px-8 py-3 flex justify-between items-center relative">
           <button onClick={() => setActiveTab('home')} className={`p-2 ${activeTab === 'home' ? 'text-slate-900' : 'text-slate-400'}`}><Home size={22}/></button>
