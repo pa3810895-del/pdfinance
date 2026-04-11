@@ -1,48 +1,11 @@
 {
-  "name": "PDFinance - Gestor de Finanzas Personal",
+  "name": "PDFinance",
   "short_name": "PDFinance",
-  "description": "Aplicación de finanzas personal con sincronización en tiempo real. Funciona offline, instalable como app, integraciones con APIs de divisas.",
+  "description": "Gestor de finanzas personal",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "theme_color": "#1a1a2e",
   "background_color": "#F2F2F7",
-  "categories": ["finance", "productivity"],
-  "screenshots": [
-    {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 720'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%231a1a2e'/><stop offset='100%' style='stop-color:%23F2F2F7'/></linearGradient></defs><rect fill='url(%23g)' width='540' height='720'/><text x='270' y='360' font-size='80' font-weight='bold' fill='%2334C759' text-anchor='middle'>PDFINANCE</text></svg>",
-      "sizes": "540x720",
-      "type": "image/svg+xml",
-      "form_factor": "narrow"
-    }
-  ],
-  "icons": [
-    {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231a1a2e' width='192' height='192' rx='45'/><text x='96' y='130' font-size='110' font-weight='bold' fill='%2334C759' text-anchor='middle'>$</text></svg>",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%231a1a2e' width='512' height='512' rx='120'/><text x='256' y='360' font-size='300' font-weight='bold' fill='%2334C759' text-anchor='middle'>$</text></svg>",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "Nuevo Movimiento",
-      "short_name": "Movimiento",
-      "description": "Registrar un nuevo movimiento financiero",
-      "url": "/?action=new",
-      "icons": [
-        {
-          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><circle fill='%231a1a2e' cx='48' cy='48' r='48'/><text x='48' y='65' font-size='60' font-weight='bold' fill='%2334C759' text-anchor='middle'>+</text></svg>",
-          "sizes": "96x96"
-        }
-      ]
-    }
-  ]
+  "icons": [{"src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231a1a2e' width='192' height='192'/><text x='96' y='130' font-size='110' font-weight='bold' fill='%2334C759'>$</text></svg>", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any"}]
 }
