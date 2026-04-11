@@ -1,31 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
-import { Home, List, PieChart, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, X } from 'lucide-react';
+import { Home, List, PieChart, Plus, ArrowUpCircle, Snowflake, Wallet, TrendingUp, X, Activity } from 'lucide-react';
 
 const App = () => {
   const [transactions, setTransactions] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  
-  // Nuevo Estado para el Modal Específico de Depósito
   const [depositWallet, setDepositWallet] = useState(null);
   const [depositForm, setDepositForm] = useState({ amount: '', spender: 'Santi', category: 'Freelance' });
-
   const [activeTab, setActiveTab] = useState('home');
   const [historyFilter, setHistoryFilter] = useState('Todos');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+
+  // --- NUEVO: ESTADO DE APIs EN TIEMPO REAL ---
+  const [rates, setRates] = useState({ bcv: 36.50, paralelo: 39.10, pen: 3.75 }); // Valores de respaldo
+  const [isLive, setIsLive] = useState(false);
 
   const [formData, setFormData] = useState({ 
     title: '', amount: '', initialPayment: '', category: 'Comida', spender: 'Santi', type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: 'Binance'
   });
 
-  // Tasas de cambio simuladas (Referenciales para el UI)
-  const exchangeRates = {
-    Binance: { rate: 45.50, currency: 'VES', label: 'Tasa P2P (Aprox)' },
-    BDV: { rate: 45.20, currency: 'VES', label: 'Tasa BCV' },
-    BCP: { rate: 3.75, currency: 'PEN', label: 'Tasa Dólar Perú' }
-  };
+  // Efecto para consultar las APIs al abrir la app
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        // API 1: Soles Peruanos
+        const peRes = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        const peData = await peRes.json();
+        
+        // API 2: Venezuela (BCV y Paralelo)
+        const veRes = await fetch('https://pydolarvenezuela-api.vercel.app/api/v1/dollar');
+        const veData = await veRes.json();
 
+        setRates({
+          bcv: veData.monitors.bcv.price || 36.50,
+          paralelo: veData.monitors.enparalelovzla.price || 39.10,
+          pen: peData.rates.PEN || 3.75
+        });
+        setIsLive(true);
+      } catch (error) {
+        console.warn("⚠️ Usando tasas offline de respaldo.");
+      }
+    };
+
+    fetchRates();
+    // Actualizar cada 10 minutos automáticamente
+    const interval = setInterval(fetchRates, 600000); 
+    return () => clearInterval(interval);
+  }, []);
+
+  // Base de datos Firestore
   useEffect(() => {
     const q = query(collection(db, "transactions"), orderBy("date", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -36,7 +60,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // --- MATEMÁTICAS GLOBALES ---
+  // --- MATEMÁTICAS ---
   const totalIncomes = transactions.filter(t => t.type === 'Ingreso').reduce((a,c) => a + Number(c.amount), 0);
   const gastosEfectivos = transactions.filter(t => t.type === 'Egreso').reduce((a,c) => {
     if (c.category === 'Cashea') return a + Number(c.initialPayment || c.amount);
@@ -65,15 +89,21 @@ const App = () => {
 
   const balances = { Binance: getAccountBalance('Binance'), BCP: getAccountBalance('BCP'), BDV: getAccountBalance('BDV') };
 
-  const getDynamicMessage = () => {
+  // Diccionario Dinámico de Tasas basado en la API
+  const exchangeRates = {
+    Binance: { rate: rates.paralelo, currency: 'Bs', label: 'Mercado P2P' },
+    BDV: { rate: rates.bcv, currency: 'Bs', label: 'Oficial BCV' },
+    BCP: { rate: rates.pen, currency: 'S/', label: 'Soles' }
+  };
+
+  const aiMessage = () => {
     if (saldoLibre < 0) return { msg: "⚠️ Alerta Roja: Presupuesto en negativo.", icon: "🆘", style: "text-paty-pink animate-pulse" };
     if (saldoLibre === 0) return { msg: "Al ras. Ni un café más.", icon: "🧊", style: "text-slate-400" };
     if (saldoLibre < 50) return { msg: "Modo Supervivencia: Solo arepas 🫓", icon: "⚠️", style: "text-orange-400" };
     if (saldoLibre >= 50 && saldoLibre < 200) return { msg: "Tranquilidad. Hay para gustos ✅", icon: "☕️", style: "text-success-green" };
     if (saldoLibre >= 200) return { msg: "Modo Rockefeller activado 🎩✨", icon: "🚀", style: "text-[#007AFF]" };
     return { msg: "Calculando...", icon: "🤔", style: "text-slate-400" };
-  };
-  const aiMessage = getDynamicMessage();
+  }();
 
   // --- HANDLERS ---
   const handleGeneralSubmit = async (e) => {
@@ -86,17 +116,11 @@ const App = () => {
     }
 
     const dataToSave = { ...formData, amount: Number(formData.amount), date: Timestamp.now() };
-    if (formData.category === 'Cashea' && formData.initialPayment) {
-      dataToSave.initialPayment = Number(formData.initialPayment);
-    } else {
-      dataToSave.initialPayment = Number(formData.amount);
-    }
+    if (formData.category === 'Cashea' && formData.initialPayment) dataToSave.initialPayment = Number(formData.initialPayment);
+    else dataToSave.initialPayment = Number(formData.amount);
 
-    setShowModal(false); // Cierre Optimista
-    const currentSpender = formData.spender;
-    const currentAccount = formData.account;
-    setFormData({ title: '', amount: '', initialPayment: '', category: 'Comida', spender: currentSpender, type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: currentAccount });
-
+    setShowModal(false); 
+    setFormData({ title: '', amount: '', initialPayment: '', category: 'Comida', spender: formData.spender, type: 'Egreso', frequency: 'Aleatorio', installments: '3', account: formData.account });
     await addDoc(collection(db, "transactions"), dataToSave);
   };
 
@@ -116,18 +140,15 @@ const App = () => {
       date: Timestamp.now()
     };
 
-    setDepositWallet(null); // Cierre Optimista del modal de depósito
+    setDepositWallet(null);
     setDepositForm({ amount: '', spender: depositForm.spender, category: depositForm.category });
-
     await addDoc(collection(db, "transactions"), dataToSave);
   };
 
   const copyDebugInfo = () => {
-    navigator.clipboard.writeText(JSON.stringify({t: new Date().toISOString(), l: saldoLibre, c: capitalEnBanco}));
+    navigator.clipboard.writeText(JSON.stringify({t: new Date().toISOString(), l: saldoLibre, c: capitalEnBanco, rates: rates}));
     alert("🛠️ Modo Debug Copiado");
   };
-
-  // --- COMPONENTES DE PESTAÑA ---
 
   const HomeTab = () => (
     <div className="animate-in fade-in duration-300">
@@ -147,16 +168,23 @@ const App = () => {
           </div>
       </div>
 
-      <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Toca para gestionar cuenta</h2>
+      <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Cuentas (Equivalentes Locales)</h2>
       <div className="flex gap-3 mb-6 overflow-x-auto pb-2 hide-scrollbar">
           {['Binance', 'BCP', 'BDV'].map(acc => {
             const colors = { Binance: 'text-[#F3BA2F] bg-[#F3BA2F]/10 border-[#F3BA2F]/30', BCP: 'text-[#FF7A00] bg-[#FF7A00]/10 border-[#FF7A00]/30', BDV: 'text-paty-pink bg-paty-pink/10 border-paty-pink/30' };
             const textColor = { Binance: 'text-[#F3BA2F]', BCP: 'text-[#FF7A00]', BDV: 'text-paty-pink' };
+            const localBalance = balances[acc] * exchangeRates[acc].rate;
+            
             return (
-              <button key={acc} onClick={() => setDepositWallet(acc)} className={`min-w-[130px] ${colors[acc]} border p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left relative overflow-hidden`}>
-                <p className={`text-[10px] font-black ${textColor[acc]} uppercase mb-1 flex items-center gap-1`}><Wallet size={12}/> {acc}</p>
-                <p className="font-black text-lg text-slate-800">\$${balances[acc].toLocaleString()}</p>
-                <div className={`mt-2 text-[8px] font-bold ${textColor[acc]} bg-white/50 px-2 py-1 rounded-full inline-block backdrop-blur-sm`}>Ver Detalle ➔</div>
+              <button key={acc} onClick={() => setDepositWallet(acc)} className={`min-w-[140px] ${colors[acc]} border p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left relative overflow-hidden`}>
+                <div className="flex justify-between items-center mb-1">
+                   <p className={`text-[10px] font-black ${textColor[acc]} uppercase flex items-center gap-1`}><Wallet size={12}/> {acc}</p>
+                   {isLive && <span className="w-1.5 h-1.5 rounded-full bg-success-green animate-pulse"></span>}
+                </div>
+                <p className="font-black text-xl text-slate-800">\$${balances[acc].toLocaleString()}</p>
+                <p className={`text-[9px] font-bold mt-1 ${textColor[acc]}`}>
+                  ≈ {exchangeRates[acc].currency} {localBalance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                </p>
               </button>
             )
           })}
@@ -220,8 +248,19 @@ const App = () => {
   );
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7] font-sans pb-32 select-none text-slate-900">
+    <div className="min-h-screen bg-[#F2F2F7] font-sans pb-32 select-none text-slate-900 relative">
       
+      {/* --- WALL STREET TICKER --- */}
+      <div className="bg-slate-900 text-success-green font-mono text-[10px] font-bold py-1.5 overflow-hidden whitespace-nowrap sticky top-0 z-50 shadow-md">
+         <div className="inline-block animate-ticker">
+            <span className="mx-6 flex-inline items-center"><Activity size={10} className="inline mr-1 text-white"/>🇻🇪 BCV Oficial: <span className="text-white">Bs. {rates.bcv.toFixed(2)}</span></span>
+            <span className="mx-6 flex-inline items-center"><TrendingUp size={10} className="inline mr-1 text-white"/>🚀 P2P/Paralelo: <span className="text-white">Bs. {rates.paralelo.toFixed(2)}</span></span>
+            <span className="mx-6 flex-inline items-center"><Activity size={10} className="inline mr-1 text-white"/>🇵🇪 Soles (PEN): <span className="text-white">S/ {rates.pen.toFixed(2)}</span></span>
+            <span className="mx-6 flex-inline items-center"><Activity size={10} className="inline mr-1 text-white"/>🇻🇪 BCV Oficial: <span className="text-white">Bs. {rates.bcv.toFixed(2)}</span></span>
+            <span className="mx-6 flex-inline items-center"><TrendingUp size={10} className="inline mr-1 text-white"/>🚀 P2P/Paralelo: <span className="text-white">Bs. {rates.paralelo.toFixed(2)}</span></span>
+         </div>
+      </div>
+
       {showEasterEgg && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in zoom-in duration-300">
             <div className="text-center">
@@ -232,7 +271,6 @@ const App = () => {
         </div>
       )}
 
-      {/* --- MODAL ESPECÍFICO DE DEPÓSITO Y BILLETERA --- */}
       {depositWallet && (
         <div className="fixed inset-0 z-[100] flex items-end">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-in fade-in" onClick={() => setDepositWallet(null)} />
@@ -250,17 +288,16 @@ const App = () => {
                </div>
             </div>
 
-            {/* Dashboard Interno de la Cuenta con Tasa P2P */}
             <div className="bg-[#F2F2F7] p-5 rounded-3xl mb-6">
                 <div className="flex justify-between items-center mb-2">
-                   <p className="text-xs font-bold text-slate-500">Saldo Actual en USD</p>
+                   <p className="text-xs font-bold text-slate-500">Saldo Actual Base (USD)</p>
                    <p className="text-[10px] font-black text-success-green flex items-center gap-1"><TrendingUp size={12}/> {exchangeRates[depositWallet].label}</p>
                 </div>
                 <div className="flex justify-between items-end">
                    <p className="text-4xl font-black tracking-tighter">\$${balances[depositWallet].toLocaleString()}</p>
                    <div className="text-right">
-                      <p className="text-sm font-black text-slate-700">{(balances[depositWallet] * exchangeRates[depositWallet].rate).toLocaleString()} {exchangeRates[depositWallet].currency}</p>
-                      <p className="text-[8px] font-bold text-slate-400 uppercase">Aprox. a Tasa {exchangeRates[depositWallet].rate}</p>
+                      <p className="text-sm font-black text-slate-700">{(balances[depositWallet] * exchangeRates[depositWallet].rate).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} {exchangeRates[depositWallet].currency}</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase">Tasa en vivo: {exchangeRates[depositWallet].rate}</p>
                    </div>
                 </div>
             </div>
@@ -279,7 +316,7 @@ const App = () => {
 
               <div className="relative">
                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-300">\$</span>
-                 <input type="number" step="0.01" placeholder="Monto a ingresar" className="w-full bg-[#F2F2F7] p-5 pl-14 rounded-3xl outline-none font-black text-3xl text-success-green placeholder:text-success-green/30" value={depositForm.amount} onChange={e => setDepositForm({...depositForm, amount: e.target.value})} autoFocus />
+                 <input type="number" step="0.01" placeholder="Monto en USD" className="w-full bg-[#F2F2F7] p-5 pl-14 rounded-3xl outline-none font-black text-3xl text-success-green placeholder:text-success-green/30" value={depositForm.amount} onChange={e => setDepositForm({...depositForm, amount: e.target.value})} autoFocus />
               </div>
 
               <button type="submit" className="w-full bg-success-green text-white p-6 rounded-[2.5rem] font-black text-xl active:scale-95 transition-all shadow-xl shadow-success-green/20">Depositar Fondos</button>
@@ -288,18 +325,17 @@ const App = () => {
         </div>
       )}
 
-      {/* HEADER PRINCIPAL */}
-      <div className="max-w-md mx-auto sticky top-0 z-30 px-6 pt-12 pb-4 backdrop-blur-xl bg-[#F2F2F7]/90">
+      <div className="max-w-md mx-auto sticky top-8 z-30 px-6 pt-8 pb-4 backdrop-blur-xl bg-[#F2F2F7]/90">
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-black tracking-tighter">\$${capitalEnBanco.toLocaleString()}</h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capital Total Real</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capital Total Real (USD)</p>
           </div>
           <button onClick={copyDebugInfo} className="opacity-10 text-xl">🛠️</button>
         </div>
       </div>
 
-      <main className="max-w-md mx-auto px-6 pt-4">
+      <main className="max-w-md mx-auto px-6 pt-2">
         {activeTab === 'home' && <HomeTab />}
         {activeTab === 'history' && <HistoryTab />}
         {activeTab === 'analytics' && <AnalyticsTab />}
@@ -318,7 +354,6 @@ const App = () => {
         <Plus size={28} strokeWidth={3} />
       </button>
 
-      {/* MODAL GENERAL DE GASTOS */}
       {showModal && (
         <div className="fixed inset-0 z-[60] flex items-end">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
@@ -339,7 +374,11 @@ const App = () => {
               </div>
 
               <input type="text" placeholder="¿En qué gastaste?" className="w-full bg-[#F2F2F7] p-4 rounded-2xl outline-none font-bold" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
-              <input type="number" step="0.01" placeholder="Monto Total $" className="w-full bg-[#F2F2F7] p-4 rounded-2xl outline-none font-black text-4xl text-center" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} />
+              
+              <div className="relative">
+                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-slate-300">\$</span>
+                 <input type="number" step="0.01" placeholder="Monto Total" className="w-full bg-[#F2F2F7] p-4 pl-10 rounded-2xl outline-none font-black text-4xl text-center" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} />
+              </div>
 
               <div className="grid grid-cols-3 gap-2 text-[10px] font-bold">
                 {['Comida', 'Cashea', 'Auto', 'Gym', 'Alquiler', 'Torta'].map(cat => (
