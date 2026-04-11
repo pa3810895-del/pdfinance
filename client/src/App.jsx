@@ -11,7 +11,6 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [historyFilter, setHistoryFilter] = useState('Todos');
 
-  // FIX QA: Valores de respaldo ajustados a la realidad económica actual
   const [rates, setRates] = useState({ bcv: 475.20, paralelo: 633.50, pen: 3.75 });
 
   const [formData, setFormData] = useState({ 
@@ -30,7 +29,7 @@ const App = () => {
           paralelo: veData?.monitors?.enparalelovzla?.price || 633.50,
           pen: peData?.rates?.PEN || 3.75
         });
-      } catch (e) { console.warn("Modo offline: Usando tasas predeterminadas del QA."); }
+      } catch (e) { console.warn("Modo offline."); }
     };
     fetchRates();
     const q = query(collection(db, "transactions"), orderBy("date", "desc"));
@@ -50,13 +49,23 @@ const App = () => {
   const totalFixedCosts = transactions.filter(t => t.type === 'Egreso' && t.frequency === 'Fijo').reduce((a,c) => a + Number(c.amount), 0);
   const saldoLibre = capitalEnBanco - dineroCongelado - totalFixedCosts;
 
-  // --- ANALYTICS DATA ---
+  // FIX QA: Cálculo correcto de saldos individuales
+  const getAccountBalance = (accName) => {
+    const incomes = transactions.filter(t => t.type === 'Ingreso' && t.account === accName).reduce((a,c) => a + Number(c.amount), 0);
+    const expenses = transactions.filter(t => t.type === 'Egreso' && t.account === accName).reduce((a,c) => {
+       if (c.category === 'Cashea') return a + Number(c.initialPayment || c.amount);
+       return a + Number(c.amount);
+    }, 0);
+    return incomes - expenses;
+  };
+
+  const balances = { Binance: getAccountBalance('Binance'), BCP: getAccountBalance('BCP'), BDV: getAccountBalance('BDV') };
+
   const categoryTotals = transactions.filter(t => t.type === 'Egreso').reduce((acc, curr) => {
     acc[curr.category] = (acc[curr.category] || 0) + Number(curr.amount);
     return acc;
   }, {});
   const totalExpenses = transactions.filter(t => t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0);
-
   const santiPagos = transactions.filter(t => t.spender === 'Santi' && t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0);
   const patyPagos = transactions.filter(t => t.spender === 'Paty' && t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0);
   const diff = (santiPagos - patyPagos) / 2;
@@ -86,7 +95,7 @@ const App = () => {
     <div className="animate-in fade-in duration-500">
       <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] shadow-2xl mb-6 relative overflow-hidden border-4 border-slate-800">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Saldo Libre para Paty</p>
-          <p className={`text-5xl font-black tracking-tighter ${saldoLibre >= 0 ? 'text-success-green' : 'text-paty-pink'}`}>\$${saldoLibre.toLocaleString()}</p>
+          <p className={`text-5xl font-black tracking-tighter ${saldoLibre >= 0 ? 'text-success-green' : 'text-paty-pink'}`}>\$${saldoLibre.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
           <p className="text-[10px] font-bold mt-3 uppercase text-slate-400">
             {saldoLibre > 50 ? "🎩 Modo Rockefeller activado" : "🫓 Modo Arepa: Controlar gastos"}
           </p>
@@ -96,7 +105,9 @@ const App = () => {
           {['Binance', 'BCP', 'BDV'].map(acc => (
             <button key={acc} onClick={() => setDepositWallet(acc)} className="min-w-[140px] bg-white border border-slate-100 p-4 rounded-3xl flex-shrink-0 active:scale-95 transition-all text-left">
               <p className="text-[10px] font-black text-slate-400 uppercase mb-1 flex items-center gap-1"><Wallet size={12}/> {acc}</p>
-              <p className="font-black text-lg text-slate-800">\$${(totalIncomes - transactions.filter(t => t.account === acc && t.type === 'Egreso').reduce((a,c) => a + Number(c.amount), 0)).toLocaleString()}</p>
+              {/* FIX QA: Aquí usamos balances[acc] en lugar del total global */}
+              <p className="font-black text-xl text-slate-800">\$${balances[acc].toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+              <div className="mt-2 text-[8px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full inline-block">Ver o Depositar</div>
             </button>
           ))}
       </div>
@@ -105,11 +116,11 @@ const App = () => {
           <div className="bg-[#007AFF]/10 p-5 rounded-3xl border border-[#007AFF]/20 shadow-sm relative overflow-hidden">
               <Snowflake className="absolute -right-3 -top-3 text-[#007AFF] opacity-10" size={60} />
               <p className="text-[9px] text-[#007AFF] font-black uppercase mb-1">❄️ Cashea</p>
-              <p className="text-xl text-[#007AFF] font-black">\$${dineroCongelado.toLocaleString()}</p>
+              <p className="text-xl text-[#007AFF] font-black">\$${dineroCongelado.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
           </div>
           <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
               <p className="text-[9px] text-slate-400 uppercase mb-1">🏠 Fijos</p>
-              <p className="text-xl text-slate-800 font-black">\$${totalFixedCosts.toLocaleString()}</p>
+              <p className="text-xl text-slate-800 font-black">\$${totalFixedCosts.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
           </div>
       </div>
     </div>
@@ -171,7 +182,7 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[#F2F2F7] font-sans pb-32 text-slate-900 relative">
       
-      {/* FIX QA: TICKER WALL STREET FORZADO HORIZONTAL */}
+      {/* TICKER WALL STREET */}
       <div className="bg-slate-900 text-success-green font-mono text-[10px] font-bold py-2 overflow-hidden sticky top-0 z-50 shadow-md w-full whitespace-nowrap">
          <div className="animate-ticker items-center">
             <span className="mx-6 inline-flex items-center gap-1"><Activity size={10}/> 🇻🇪 BCV: Bs. {rates.bcv.toFixed(2)}</span>
@@ -182,12 +193,25 @@ const App = () => {
          </div>
       </div>
 
-      <header className="max-w-md mx-auto px-6 pt-8 pb-4">
-         <h1 className="text-3xl font-black tracking-tighter">\$${capitalEnBanco.toLocaleString()}</h1>
-         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Capital en Banco (USD)</p>
+      {/* FIX QA: HEADER DE CAPITAL GLOBAL REFINADO (SIN SOLES) */}
+      <header className="max-w-md mx-auto px-6 pt-6 pb-2">
+         <h1 className="text-4xl font-black tracking-tighter">\$${capitalEnBanco.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</h1>
+         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1 mb-4">Capital Total en Billeteras</p>
+         
+         <div className="flex gap-4 bg-white p-3 rounded-[1.5rem] border border-slate-100 shadow-sm">
+            <div className="flex-1">
+               <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5">🇻🇪 Oficial (BCV)</p>
+               <p className="text-sm font-bold text-slate-700">Bs. {(capitalEnBanco * rates.bcv).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+            </div>
+            <div className="w-px bg-slate-100"></div>
+            <div className="flex-1">
+               <p className="text-[9px] font-black text-success-green uppercase mb-0.5">🚀 Paralelo (P2P)</p>
+               <p className="text-sm font-bold text-slate-900">Bs. {(capitalEnBanco * rates.paralelo).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+            </div>
+         </div>
       </header>
 
-      <main className="max-w-md mx-auto px-6">
+      <main className="max-w-md mx-auto px-6 pt-2">
         {activeTab === 'home' && <HomeTab />}
         {activeTab === 'history' && <HistoryTab />}
         {activeTab === 'analytics' && <AnalyticsTab />}
